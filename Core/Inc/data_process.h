@@ -37,7 +37,7 @@ extern volatile bool trigger_found;
 
 extern int time_scale;             // capture 1 data from every n points
 
-extern uint8_t adc_buffer[ADC_BUFFER_SIZE];
+extern uint8_t adc_buffer[3][4800];
 extern uint8_t adc_intermediate[ADC_INTERMEDIATE_SIZE][SCREEN_SIZE];   // should initialize
 extern int8_t screen_data[SCREEN_DATA_SIZE];
 

@@ -24,7 +24,7 @@ trigger_mode_enum trigger_mode = TRIGGER_MODE_FALLING;
 
 int time_scale = 1;             // capture 1 data from every n points
 
-uint8_t adc_buffer[ADC_BUFFER_SIZE];
+uint8_t adc_buffer[3][4800];
 uint8_t adc_intermediate[ADC_INTERMEDIATE_SIZE][SCREEN_SIZE] = {0};   // should initialize
 int8_t screen_data[SCREEN_DATA_SIZE];
 
@@ -34,7 +34,7 @@ uint8_t* adc_intermediate_end_ptr;		// closed
 int adc_intermediate_index = 0;
 uint8_t* adc_intermediate_ptr;
 int half_screen_size = SCREEN_SIZE / 2;
-int half_adc_buffer_size = ADC_BUFFER_SIZE / 2;
+int half_one_adc_buffer_size = ADC_BUFFER_SIZE / 6;
 
 uint8_t trigger_level = 128;    // 0-255, 128 is the middle level
 uint8_t offset = 128;
@@ -42,13 +42,19 @@ uint8_t offset = 128;
 uint8_t prev_val;
 uint8_t curr_val;
 
-uint8_t* adc_buffer_read_start_ptr;
-uint8_t* adc_buffer_read_end_ptr;
-uint8_t* adc_buffer_read_ptr;
-uint8_t* adc_buffer_after_trigger_read_end_ptr;
+// uint8_t* adc_buffer_read_start_ptr;
+// uint8_t* adc_buffer_read_end_ptr;
+// uint8_t* adc_buffer_read_ptr_arr[3];
+// uint8_t* adc_buffer_read_ptr;
+// uint8_t* adc_buffer_after_trigger_read_end_ptr;
 
-uint8_t* adc_buffer_read_find_trigger_start_ptr;
-uint8_t* adc_buffer_read_find_trigger_end_ptr;
+// uint8_t* adc_buffer_read_find_trigger_start_ptr;
+// uint8_t* adc_buffer_read_find_trigger_end_ptr;
+
+int adc_buffer_read_idx;
+int adc_buffer_after_trigger_read_end_idx;
+int adc_buffer_read_find_trigger_index_start;
+int adc_buffer_read_index_end;
 
 // screen end know where to read the 200 signed data
 uint8_t* screen_data_start_ptr;
@@ -70,23 +76,24 @@ uint8_t min_val;
 
 const uint8_t zero_val = 0;
 
+int adc_buffer_read_index;
 
 
 void captureData(void)
 {
+
     if (is_adc_buffer_first_half_active)
     {
-        adc_buffer_read_start_ptr = &adc_buffer[0];
-        adc_buffer_read_end_ptr = &adc_buffer[half_adc_buffer_size];
+    	adc_buffer_read_idx = 0;
+    	adc_buffer_read_find_trigger_index_start = half_screen_size * time_scale;
+    	adc_buffer_read_index_end = half_one_adc_buffer_size * 3 - half_screen_size * time_scale;
     }
     else
     {
-        adc_buffer_read_start_ptr = &adc_buffer[half_adc_buffer_size];
-        adc_buffer_read_end_ptr = &adc_buffer[ADC_BUFFER_SIZE];
+    	adc_buffer_read_idx = half_one_adc_buffer_size * 3;
+    	adc_buffer_read_find_trigger_index_start = half_one_adc_buffer_size * 3 + half_screen_size * time_scale;
+    	adc_buffer_read_index_end = half_one_adc_buffer_size * 6 - half_screen_size * time_scale;
     }
-
-    adc_buffer_read_find_trigger_start_ptr = adc_buffer_read_start_ptr +  time_scale * half_screen_size;
-    adc_buffer_read_find_trigger_end_ptr = adc_buffer_read_end_ptr - time_scale * half_screen_size;
 
     adc_intermediate_start_ptr = adc_intermediate[adc_intermediate_index];
     adc_intermediate_end_ptr = adc_intermediate_start_ptr + SCREEN_SIZE - 1;
@@ -95,31 +102,28 @@ void captureData(void)
     screen_frame_end_ptr = adc_intermediate_end_ptr;
 
     adc_intermediate_ptr = adc_intermediate_start_ptr;
-    adc_buffer_read_ptr = adc_buffer_read_start_ptr;
 
-    curr_val = *adc_buffer_read_ptr;
+    curr_val = adc_buffer[adc_buffer_read_idx % 3][adc_buffer_read_idx / 3];
     prev_val = curr_val;
     *adc_intermediate_ptr = prev_val;
     adc_intermediate_ptr++;
-    adc_buffer_read_ptr += time_scale;
 
     trigger_found = false;
 
-    while (adc_buffer_read_ptr < adc_buffer_read_end_ptr)
+    adc_buffer_read_index += time_scale;
+
+
+    for (; adc_buffer_read_idx < adc_buffer_read_index_end; adc_buffer_read_idx += time_scale)
     {
-    	if (adc_buffer_read_ptr < adc_buffer_read_find_trigger_start_ptr)
+    	curr_val = adc_buffer[adc_buffer_read_idx % 3][adc_buffer_read_idx / 3];
+    	*adc_intermediate_ptr = curr_val;
+
+    	if (adc_buffer_read_idx < adc_buffer_read_find_trigger_index_start)
     	{
-    		curr_val = *adc_buffer_read_ptr;
-    		*adc_intermediate_ptr = curr_val;
     		prev_val = curr_val;
     		adc_intermediate_ptr = adc_intermediate_ptr == adc_intermediate_end_ptr ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
-    		adc_buffer_read_ptr += time_scale;
     		continue;
     	}
-
-        curr_val = *adc_buffer_read_ptr;
-        *adc_intermediate_ptr = curr_val;
-
 
         switch (trigger_mode)
         {
@@ -138,15 +142,15 @@ void captureData(void)
         {
             // screen_data_start_ptr = adc_intermediate_ptr;
 
-            adc_buffer_after_trigger_read_end_ptr = adc_buffer_read_ptr + (time_scale * half_screen_size);
+            adc_buffer_after_trigger_read_end_idx = adc_buffer_read_idx + (time_scale * half_screen_size);
 
-            adc_buffer_read_ptr = adc_buffer_read_ptr + time_scale;
+            adc_buffer_read_idx += time_scale;
 
             adc_intermediate_ptr = (adc_intermediate_ptr == adc_intermediate_end_ptr) ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
 
-            for (; adc_buffer_read_ptr < adc_buffer_after_trigger_read_end_ptr; adc_buffer_read_ptr += time_scale)
+            for (; adc_buffer_read_idx < adc_buffer_after_trigger_read_end_idx; adc_buffer_read_idx += time_scale)
             {
-                *adc_intermediate_ptr = *adc_buffer_read_ptr;
+                *adc_intermediate_ptr = adc_buffer[adc_buffer_read_idx % 3][adc_buffer_read_idx / 3];
                 adc_intermediate_ptr = (adc_intermediate_ptr == adc_intermediate_end_ptr) ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
             }
 
@@ -157,7 +161,6 @@ void captureData(void)
 
         prev_val = curr_val;
         adc_intermediate_ptr = adc_intermediate_ptr == adc_intermediate_end_ptr ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
-        adc_buffer_read_ptr += time_scale;
     }
 
     if (!trigger_found)

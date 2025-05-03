@@ -75,7 +75,6 @@ const osThreadAttr_t testTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -118,6 +117,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+
 
   /* USER CODE END Init */
 
@@ -426,6 +426,7 @@ void StartCaptureDataTask(void *argument)
 		  screen_data_ready = false;
 		  trigger_found = false;
 
+
 		  captureData();
 
 		  adc_intermediate_index = (adc_intermediate_index == ADC_INTERMEDIATE_SIZE - 1) ? 0 : adc_intermediate_index + 1;
@@ -471,7 +472,7 @@ void StartMeasureTask(void *argument)
 void StartTestTask(void *argument)
 {
   /* USER CODE BEGIN StartTestTask */
-  const double test_freq = 1234500.0;
+  const double test_freq = 240000.0;
   const double sample_rate = (double)ADC_SAMPLING_RATE;
   const double amplitude = 64.0;
   const double test_offset = 128.0;
@@ -483,11 +484,12 @@ void StartTestTask(void *argument)
 	  value = amplitude * sin(2 * M_PI * test_freq * t) + test_offset;
 	  if (value < 0)	value = 0;
 	  if (value > 255)	value = 255;
-	  adc_buffer[i] = (uint8_t)(value + 0.5);
+	  adc_buffer[i % 3][i / 3] = (uint8_t)(value + 0.5);
   }
 
+
   is_adc_buffer_first_half_active = true;
-  time_scale = 1;
+  time_scale = 13;
 
   screen_data_ready = false;
   screen_measure_ready = false;
