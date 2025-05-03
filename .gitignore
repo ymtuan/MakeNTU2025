@@ -1,0 +1,20 @@
+# Ignore build output
+Debug/
+Release/
+
+# Ignore IDE metadata
+*.launch
+*.log
+*.bak
+*.dep
+*.elf
+*.map
+*.o
+*.d
+*.lst
+*.axf
+
+# STM32CubeIDE metadata (optional)
+# .cproject
+# .project
+# .settings/
