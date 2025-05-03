@@ -18,9 +18,9 @@
 
 #define SCREEN_DATA_SIZE		800		   // SCREEN_TRIGGERS * SCREEN_SIZE
 #define ADC_INTERMEDIATE_SIZE	2
-#define ADC_BUFFER_SIZE			10800	   // ADC_SAMPLING_RATE * ADC_BUFFER_TIME / 1000
+#define ADC_BUFFER_SIZE			14400	   // ADC_SAMPLING_RATE * ADC_BUFFER_TIME / 1000
 
-#define ADC_SAMPLING_RATE       5400000    // Hz
+#define ADC_SAMPLING_RATE       7200000    // Hz
 #define ADC_BUFFER_TIME    		2          // ms
 #define ADC_RESOLUTION          8          // bits
 #define ADC_VOLTAGE_MAX         3.3        // V
