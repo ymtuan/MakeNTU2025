@@ -22,39 +22,17 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
-#include <math.h>
+#include "data_process.h"
+#include <math.h>		// for test function
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum
-{
-    TRIGGER_MODE_RISING,
-    TRIGGER_MODE_FALLING,
-    TRIGGER_MODE_BOTH
-} trigger_mode_enum;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
-#define SCREEN_TRIGGERS         4
-
-#define SCREEN_SIZE             200
-
-#define SCREEN_DATA_SIZE		800		   // SCREEN_TRIGGERS * SCREEN_SIZE
-#define ADC_INTERMEDIATE_SIZE	2
-#define ADC_BUFFER_SIZE			10800	   // ADC_SAMPLING_RATE * ADC_BUFFER_TIME / 1000
-
-#define ADC_SAMPLING_RATE       5400000    // Hz
-#define ADC_BUFFER_TIME    		2          // ms
-#define ADC_RESOLUTION          8          // bits
-#define ADC_VOLTAGE_MAX         3.3        // V
-#define ADC_VOLTAGE_MIN         0		   // V
 
 /* USER CODE END PD */
 
@@ -97,64 +75,6 @@ const osThreadAttr_t testTask_attributes = {
 };
 /* USER CODE BEGIN PV */
 
-volatile bool start_finding_trigger;     // indicate the task start finding trigger, adc-dma end control
-volatile bool screen_data_ready;         // control by the program task, send signal to let the screen side to know ok to read data
-volatile bool screen_measure_ready;
-bool is_adc_buffer_first_half_active;      // indicate which half of adc buffer is active, adc-dma end control
-bool trigger_found;
-
-trigger_mode_enum trigger_mode = TRIGGER_MODE_FALLING;
-
-// const int adc_buffer_size = ADC_SAMPLING_RATE * ADC_BUFFER_HALF_TIME / 1000;
-// const int screen_data_size = SCREEN_TRIGGERS * SCREEN_SIZE;
-int time_scale = 1;             // capture 1 data from every n points
-
-uint8_t adc_buffer[ADC_BUFFER_SIZE];
-uint8_t adc_intermediate[ADC_INTERMEDIATE_SIZE][SCREEN_SIZE] = {0};   // should initialize
-int8_t screen_data[SCREEN_DATA_SIZE];
-
-uint8_t* adc_intermediate_start_ptr;
-uint8_t* adc_intermediate_end_ptr;		// closed
-
-int adc_intermediate_index = 0;
-uint8_t* adc_intermediate_ptr;
-int half_screen_size = SCREEN_SIZE / 2;
-int half_adc_buffer_size = ADC_BUFFER_SIZE / 2;
-
-uint8_t trigger_level = 128;    // 0-255, 128 is the middle level
-uint8_t offset = 128;
-
-uint8_t prev_val;
-uint8_t curr_val;
-
-uint8_t* adc_buffer_read_start_ptr;
-uint8_t* adc_buffer_read_end_ptr;
-uint8_t* adc_buffer_read_ptr;
-uint8_t* adc_buffer_after_trigger_read_end_ptr;
-
-uint8_t* adc_buffer_read_find_trigger_start_ptr;
-uint8_t* adc_buffer_read_find_trigger_end_ptr;
-
-// screen end know where to read the 200 signed data
-uint8_t* screen_data_start_ptr;
-uint8_t* screen_frame_start_ptr;
-uint8_t* screen_frame_end_ptr;		// closed
-uint8_t* screen_measure_ptr;
-
-
-double v_pp_output;
-double frequency_output;
-double period_output;
-
-int trigger_crossing_count;
-double screen_frame_time;
-
-int measure_loop_index;
-uint8_t max_val;
-uint8_t min_val;
-
-const uint8_t zero_val = 0;
-
 
 /* USER CODE END PV */
 
@@ -169,143 +89,12 @@ void StartMeasureTask(void *argument);
 void StartTestTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-void captureData(void);
-void measure(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void captureData(void)
-{
-    // screen_data_ready = false;
-    // screen_measure_ready = false;
-    if (is_adc_buffer_first_half_active)
-    {
-        adc_buffer_read_start_ptr = &adc_buffer[0];
-        adc_buffer_read_end_ptr = &adc_buffer[half_adc_buffer_size];
-    }
-    else
-    {
-        adc_buffer_read_start_ptr = &adc_buffer[half_adc_buffer_size];
-        adc_buffer_read_end_ptr = &adc_buffer[ADC_BUFFER_SIZE];
-    }
-
-    adc_buffer_read_find_trigger_start_ptr = adc_buffer_read_start_ptr +  time_scale * half_screen_size;
-    adc_buffer_read_find_trigger_end_ptr = adc_buffer_read_end_ptr - time_scale * half_screen_size;
-
-    adc_intermediate_start_ptr = adc_intermediate[adc_intermediate_index];
-    adc_intermediate_end_ptr = adc_intermediate_start_ptr + SCREEN_SIZE - 1;
-
-    screen_frame_start_ptr = adc_intermediate_start_ptr;
-    screen_frame_end_ptr = adc_intermediate_end_ptr;
-
-    adc_intermediate_ptr = adc_intermediate_start_ptr;
-    adc_buffer_read_ptr = adc_buffer_read_start_ptr;
-
-    curr_val = *adc_buffer_read_ptr;
-    prev_val = curr_val;
-    *adc_intermediate_ptr = prev_val;
-    adc_intermediate_ptr++;
-    adc_buffer_read_ptr += time_scale;
-
-    trigger_found = false;
-
-    while (adc_buffer_read_ptr < adc_buffer_read_end_ptr)
-    {
-    	if (adc_buffer_read_ptr < adc_buffer_read_find_trigger_start_ptr)
-    	{
-    		curr_val = *adc_buffer_read_ptr;
-    		*adc_intermediate_ptr = curr_val;
-    		prev_val = curr_val;
-    		adc_intermediate_ptr = adc_intermediate_ptr == adc_intermediate_end_ptr ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
-    		adc_buffer_read_ptr += time_scale;
-    		continue;
-    	}
-
-        curr_val = *adc_buffer_read_ptr;
-        *adc_intermediate_ptr = curr_val;
-
-
-        switch (trigger_mode)
-        {
-            case TRIGGER_MODE_RISING :
-                trigger_found = (prev_val <= trigger_level && curr_val > trigger_level);
-                break;
-            case TRIGGER_MODE_FALLING :
-                trigger_found = (prev_val >= trigger_level && curr_val < trigger_level);
-                break;
-            case TRIGGER_MODE_BOTH :
-                trigger_found = (prev_val <= trigger_level && curr_val > trigger_level) || (prev_val >= trigger_level && curr_val < trigger_level);
-                break;
-        }
-
-        if (trigger_found)
-        {
-            // screen_data_start_ptr = adc_intermediate_ptr;
-
-            adc_buffer_after_trigger_read_end_ptr = adc_buffer_read_ptr + (time_scale * half_screen_size);
-
-            adc_buffer_read_ptr = adc_buffer_read_ptr + time_scale;
-
-            adc_intermediate_ptr = (adc_intermediate_ptr == adc_intermediate_end_ptr) ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
-
-            for (; adc_buffer_read_ptr < adc_buffer_after_trigger_read_end_ptr; adc_buffer_read_ptr += time_scale)
-            {
-                *adc_intermediate_ptr = *adc_buffer_read_ptr;
-                adc_intermediate_ptr = (adc_intermediate_ptr == adc_intermediate_end_ptr) ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
-            }
-
-            screen_data_start_ptr = adc_intermediate_ptr;
-            screen_data_ready = true;
-            break;
-        }
-
-        prev_val = curr_val;
-        adc_intermediate_ptr = adc_intermediate_ptr == adc_intermediate_end_ptr ? adc_intermediate_start_ptr : adc_intermediate_ptr + 1;
-        adc_buffer_read_ptr += time_scale;
-    }
-
-    if (!trigger_found)
-    {
-    	// fail to find any trigger in this half of adc buffer
-    }
-
-    // toggle adc_intermediate_index
-}
-
-
-void measure(void)
-{
-    trigger_crossing_count = 0;
-    screen_measure_ptr = screen_data_start_ptr;
-    prev_val = *screen_measure_ptr;
-    max_val = prev_val;
-    min_val = prev_val;
-    screen_measure_ptr = (screen_measure_ptr == screen_frame_end_ptr) ? screen_frame_start_ptr : screen_measure_ptr + 1;
-
-    for (measure_loop_index = 1; measure_loop_index < SCREEN_SIZE; measure_loop_index++)
-    {
-        curr_val = *screen_measure_ptr;
-        if (((prev_val >= trigger_level) && (curr_val < trigger_level)) || ((prev_val <= trigger_level) && (curr_val > trigger_level)))
-        {
-            trigger_crossing_count++;
-        }
-
-        max_val = (curr_val > max_val) ? curr_val : max_val;
-        min_val = (curr_val < min_val) ? curr_val : min_val;
-
-        prev_val = curr_val;
-        screen_measure_ptr = (screen_measure_ptr == screen_frame_end_ptr) ? screen_frame_start_ptr : screen_measure_ptr + 1;
-    }
-
-    v_pp_output = (double)(max_val - min_val) * (ADC_VOLTAGE_MAX - ADC_VOLTAGE_MIN) / 255.0;
-    frequency_output = (double)(trigger_crossing_count * ADC_SAMPLING_RATE) / (2 * SCREEN_SIZE * time_scale);
-    period_output = 1.0 / frequency_output;
-
-    // screen_measure_ready = true;
-}
 
 /* USER CODE END 0 */
 
@@ -466,45 +255,47 @@ void SystemClock_Config(void)
   * @param None
   * @retval None
   */
-static void MX_TIM2_Init(void)
-{
 
-  /* USER CODE BEGIN TIM2_Init 0 */
+//static void MX_TIM2_Init(void)
+//{
+//
+//  /* USER CODE BEGIN TIM2_Init 0 */
+//
+//  /* USER CODE END TIM2_Init 0 */
+//
+//  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+//  TIM_MasterConfigTypeDef sMasterConfig = {0};
+//
+//  /* USER CODE BEGIN TIM2_Init 1 */
+//
+//  /* USER CODE END TIM2_Init 1 */
+//  htim2.Instance = TIM2;
+//  htim2.Init.Prescaler = 0;
+//  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+//  htim2.Init.Period = 536870911;
+//  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+//  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+//  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+//  {
+//    Error_Handler();
+//  }
+//  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+//  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+//  {
+//    Error_Handler();
+//  }
+//  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+//  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+//  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+//  {
+//    Error_Handler();
+//  }
+//  /* USER CODE BEGIN TIM2_Init 2 */
+//
+//  /* USER CODE END TIM2_Init 2 */
+//
+//}
 
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 536870911;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-
-}
 
 /**
   * @brief GPIO Initialization Function
@@ -661,6 +452,7 @@ void StartMeasureTask(void *argument)
 	  if (screen_data_ready)
 	  {
 		  screen_measure_ready = false;
+		  screen_data_ready = false;
 		  measure();
 		  screen_measure_ready = true;
 	  }
@@ -679,7 +471,7 @@ void StartMeasureTask(void *argument)
 void StartTestTask(void *argument)
 {
   /* USER CODE BEGIN StartTestTask */
-  const double test_freq = 1700000.0;
+  const double test_freq = 1234500.0;
   const double sample_rate = (double)ADC_SAMPLING_RATE;
   const double amplitude = 64.0;
   const double test_offset = 128.0;
@@ -707,10 +499,12 @@ void StartTestTask(void *argument)
 	  osDelay(10);
   }
 
+  /*
   if (screen_measure_ready)
   {
 	  printf("Max: %d, Min: %d, Vpp: %.2f V, Freq: %.2f Hz, Period: %.6f s\n", max_val, min_val, v_pp_output, frequency_output, period_output);
   }
+  */
 
   vTaskSuspend(NULL);
   /* USER CODE END StartTestTask */
